@@ -16,30 +16,11 @@ ENV PYTHONUNBUFFERED=1
 # package installation
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Install systemd, remove inconvenient targets and services. Helpful resources
-# to determine problematic units to be removed during development:
-#   systemctl list-dependencies
-#   systemctl list-units --state=waiting
-#   systemctl list-units --state=failed
-#   https://www.freedesktop.org/software/systemd/man/latest/bootup.html
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    systemd \
-    # General
-    && rm -f "/lib/systemd/system/sockets.target.wants/"*"udev"* \
-    && rm -f "/lib/systemd/system/sockets.target.wants/"*"initctl"* \
-    && rm -f "/lib/systemd/system/"*"ask-password"* \
-    # Ubuntu specific
-    # Prevent start of agetty on tty[1-6].
-    && rm -f "/lib/systemd/system/multi-user.target.wants/getty.target" \
-    # Clean up unnecessary installed files that aren't needed in this image
-    && rm -rf "/usr/share/doc" \
-    && rm -rf "/usr/share/man"
-
 # Install required packages and clean-up package manager caches afterwards.
 # Packages are included for these purposes:
 #
 # - Overall compatibility and network functionality:
-#   build-essential iproute2 libffi-dev libssl-dev locales procps
+#   build-essential iproute2 libffi-dev libssl-dev locales procps systemd
 #
 # - Easier debugging within the container (good feature-to-size ratio):
 #   iputils-ping, iputils-tracepath, less, vim-tiny
@@ -53,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         locales \
         procps \
+        systemd \
         iputils-ping \
         iputils-tracepath \
         less \
@@ -67,6 +49,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # packages, and --path-exclude is only available for dpkg, not for apt-get.
     && rm -rf "/usr/share/doc" \
     && rm -rf "/usr/share/man"
+
+# Configure systemd, remove inconvenient systemd units and services.
+# Helpful resources to determine problematic units to be removed:
+#   systemctl list-dependencies
+#   systemctl list-units --state=waiting
+#   systemctl list-units --state=failed
+#   systemctl mask (if not available: cd path && ln -s -f "/dev/null")
+#   https://www.freedesktop.org/software/systemd/man/latest/bootup.html
+RUN systemctl mask \
+        # Prevent login prompts, agetty on agetty on tty[1-6] etc.
+        console-getty.service \
+        getty.target \
+        systemd-logind.service \
+        systemd-ask-password-console.service \
+        systemd-ask-password-plymouth.service \
+        systemd-ask-password-wall.service \
+        # Filesystem related
+        dev-hugepages.mount \
+        sys-fs-fuse-connections.mount \
+        systemd-remount-fs.service \
+        # Miscellaneous
+        systemd-initctl.service \
+        systemd-machine-id-commit.service \
+        systemd-random-seed.service \
+        systemd-udevd.service \
+        systemd-udev-trigger.service \
+    && systemctl disable \
+        # Ubuntu specific
+        apt-daily-upgrade.timer \
+        apt-daily.timer \
+        dpkg-db-backup.timer \
+        e2scrub_all.timer \
+        motd-news.timer
 
 # Prevent UTF-8 errors or warnings raised by several tools
 RUN locale-gen en_US.UTF-8
